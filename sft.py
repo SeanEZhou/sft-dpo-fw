@@ -1,34 +1,30 @@
+import argparse
+import json
+import os
+from typing import Dict
+
+import numpy as np
+import torch
+import yaml
 from datasets import load_dataset
 from transformers import (
-    AutoTokenizer,
     AutoModelForCausalLM,
-    Trainer,
-    TrainingArguments,
+    AutoTokenizer,
     DataCollatorForLanguageModeling,
-    TrainerCallback
+    Trainer,
+    TrainerCallback,
+    TrainingArguments,
 )
-import numpy as np
-import torch, json, os
-import yaml
-from typing import Dict
-import argparse
 
-def read_yaml_config(file_path: str) -> Dict:
-    if not os.path.exists(file_path):
-        print(f"Config file not found: {file_path}. Using default parameters.")
-        return {}
-    with open(file_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
-
+from utils import read_yaml_config
 
 # === Config ===
 CUDA_VISIBLE_DEVICES = "0"
 MODEL_NAME = "HuggingFaceTB/SmolLM2-135M-Instruct"
 DATA_FILE = "fineweb_train.jsonl"
 OUTPUT_DIR = "/work7/sean/l8b_investigator_sft_checkpoints"
-MAX_LENGTH = 128     # suffix (64) + prefix (64)
-BATCH_SIZE = 16       # adjust for GPU VRAM
+MAX_LENGTH = 128  # suffix (64) + prefix (64)
+BATCH_SIZE = 16  # adjust for GPU VRAM
 EPOCHS = 3
 SAVE_STEPS = 250
 LOG_STEPS = 50
@@ -44,10 +40,10 @@ def dpo(
     EPOCHS,
     SAVE_STEPS,
     LOG_STEPS,
-    METRICS_FILE
+    METRICS_FILE,
 ):
     """Direct Preference Optimization (DPO) training script."""
-    
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # === Load dataset ===
@@ -99,10 +95,7 @@ def dpo(
         labels = torch.tensor(labels)
 
         loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100)
-        loss = loss_fct(
-            logits.view(-1, logits.size(-1)),
-            labels.view(-1)
-        ).item()
+        loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1)).item()
 
         ppl = np.exp(loss)
         return {"loss": loss, "perplexity": ppl}
@@ -113,7 +106,7 @@ def dpo(
             self.path = path
             if not os.path.exists(self.path):
                 open(self.path, "w").close()
-        
+
         def on_evaluate(self, args, state, control, metrics=None, **kwargs):
             if metrics is not None:
                 with open(self.path, "a") as f:
@@ -134,12 +127,15 @@ def dpo(
     latest_ckpt = None
     if os.path.isdir(OUTPUT_DIR):
         # look for subdirectories named "checkpoint-*"
-        subdirs = [os.path.join(OUTPUT_DIR, d) for d in os.listdir(OUTPUT_DIR) if d.startswith("checkpoint-")]
+        subdirs = [
+            os.path.join(OUTPUT_DIR, d)
+            for d in os.listdir(OUTPUT_DIR)
+            if d.startswith("checkpoint-")
+        ]
         if subdirs:
             latest_ckpt = max(subdirs, key=os.path.getmtime)  # newest checkpoint
 
     trainer.train(resume_from_checkpoint=latest_ckpt)
-
 
 
 def main():
@@ -177,8 +173,9 @@ def main():
         EPOCHS,
         SAVE_STEPS,
         LOG_STEPS,
-        METRICS_FILE
+        METRICS_FILE,
     )
+
 
 if __name__ == "__main__":
     main()

@@ -5,18 +5,7 @@ from typing import Dict, List
 import yaml
 from transformers import AutoTokenizer
 
-
-def read_yaml_config(file_path: str) -> Dict:
-    with open(file_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
-
-
-def read_json_file(jsonl_path: str):
-    with open(jsonl_path, "r") as f:
-        data = json.load(f)
-        for item in data:
-            yield item
+from utils import read_json_file, read_yaml_config
 
 
 def sample_sft_prefixes(
