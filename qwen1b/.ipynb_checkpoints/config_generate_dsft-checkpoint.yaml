@@ -1,6 +1,0 @@
-model_name: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-prefix_file: "qwen1b/qwen1b_prefixes_purplellama.jsonl"
-output_file: "qwen1b/sft_dataset.jsonl"
-suffix_tokens: 64
-batch_size: 32        # adjust depending on GPU memory (A100 can handle 32–64 easily)
-save_every: 500       # save every N generations
