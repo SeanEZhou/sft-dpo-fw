@@ -76,7 +76,11 @@ def generate_dsft(
 
         # Save periodically
         if len(pairs_done) >= save_every or start + batch_size >= len(prefixes):
-            with open(output_file, "a", encoding="utf-8") as f:
+            if os.path.exists(output_file):
+                mode = "a"
+            else:
+                mode = "w"
+            with open(output_file, mode, encoding="utf-8") as f:
                 for p in pairs_done:
                     f.write(json.dumps(p) + "\n")
             print(
