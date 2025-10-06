@@ -94,7 +94,7 @@ def generate_dsft(
 def main():
     """Command-line interface."""
     parser = argparse.ArgumentParser(
-        description="Run SWE-bench evaluation with local models"
+        description="Generate suffixes for given prefixes using a language model"
     )
     parser.add_argument(
         "--config_path",

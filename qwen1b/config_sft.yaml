@@ -1,0 +1,10 @@
+model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct
+data_file: qwen1b/qwen1b_sft_dataset.json
+output_dir: "output/qwen1b_sft"
+max_length: 2048
+batch_size: 4
+epochs: 3
+save_steps: 500
+log_steps: 100
+metrics_file: "output/qwen1b_sft/metrics.json"
+cuda_visible_devices: "0"
