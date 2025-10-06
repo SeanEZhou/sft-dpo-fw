@@ -1,0 +1,5 @@
+dataset_path: qwen1b/autocomplete_purplellama.json
+num_prefixes: 5000
+output_file: qwen1b/qwen1b_prefixes_purplellama.jsonl
+prefix_tokens: 64
+model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct
