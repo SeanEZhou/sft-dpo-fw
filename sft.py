@@ -20,7 +20,7 @@ from utils import read_yaml_config
 
 # === Config ===
 CUDA_VISIBLE_DEVICES = "0"
-MODEL_NAME = "HuggingFaceTB/SmolLM2-135M-Instruct"
+MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B"
 DATA_FILE = "fineweb_train.jsonl"
 OUTPUT_DIR = "/work7/sean/l8b_investigator_sft_checkpoints"
 MAX_LENGTH = 128  # suffix (64) + prefix (64)
