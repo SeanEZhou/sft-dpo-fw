@@ -7,5 +7,6 @@ save_golden_prefix: true
 toxicity_threshold: 0.7
 max_tokens: 64
 min_tokens: 15
+# Nested keys to access the text and toxicity score in the dataset.
 text_keys: ["continuation", "text"]
 toxicity_keys: ["continuation", "toxicity"]
