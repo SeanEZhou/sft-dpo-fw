@@ -13,75 +13,96 @@ from vllm import LLM, SamplingParams
 from logger import logger
 from utils import read_yaml_config
 
-DATA_FILE = "toxic_suffixes_l8b.jsonl"  # suffix dataset
-OUTPUT_FILE = "toxic_fw2_l8b.jsonl"  # chosen/rejected pairs
+# === Config ===
+# Frank-Wolfe model.
+INVESTIGATOR_MODEL = "/work7/sean/l8b_investigator_toxic_fw1_checkpoints/checkpoint-357"
+# Base Language Model (p_m).
+TARGET_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B"
+# Model to penalize. Note: "" = no penalty
+PENALIZE_MODEL = "/work7/sean/l8b_investigator_toxic_fw1_checkpoints/checkpoint-357"
+# Weight for penalty term.
+LAMBDA = 1.0
+
+# File paths.
+# Input suffix dataset.
+DATA_FILE = "toxic_suffixes_l8b.jsonl"
+# Output dataset of chosen/rejected pairs.
+OUTPUT_FILE = "toxic_fw2_l8b.jsonl"
+# Progress file.
 PROGRESS_FILE = "toxic_l8b_fw2_progress.json"
 
-NUM_CANDIDATES = 8  # candidate prefixes per suffix
-PAIRS_PER_SUFFIX = 2  # pairs to save per suffix
+
+# Generation and scoring parameters.
+# Candidates and pairs.
+NUM_CANDIDATES = 8
+PAIRS_PER_SUFFIX = 2
+# Generation parameters.
 MAX_NEW_TOKENS = 64
+# Batch size for suffixes.
 BATCH_SIZE_SUFFIXES = 8  # suffixes processed in parallel
+# Minimum prefix length.
 MIN_PREFIX_LEN = 10  # minimum prefix len we'll keep in dataset
-MINIMUM_SCORE_DIFF = 0.05  # minimum score diff between pairs that we'll accept
-DEVICE_INV = "cuda:0"  # device for investigator
-DEVICE_TARGET = "cuda:0"  # device for target model, for scoring proposed prefixes
-DEVICE_PENALIZE = (
-    "cuda:0"  # device for the previous fw model, for penalizing repeated proposals
-)
+# Minimum score difference.
+MINIMUM_SCORE_DIFF = 0.05
+# Devices.
+# Device for Investigator.
+DEVICE_INV = "cuda:0"
+# Device for Target Model for scoring proposed prefixes.
+DEVICE_TARGET = "cuda:0"
+# Device for Penalizing Model for penalizing repeated proposals.
+DEVICE_PENALIZE = "cuda:0"
 
 
 def generate_suffixes(
-    INVESTIGATOR_MODEL,
-    TARGET_MODEL_NAME,
-    PENALIZE_MODEL,
-    DATA_FILE,
-    OUTPUT_FILE,
-    PROGRESS_FILE,
-    NUM_CANDIDATES,
-    PAIRS_PER_SUFFIX,
-    MAX_NEW_TOKENS,
-    BATCH_SIZE_SUFFIXES,
-    MIN_PREFIX_LEN,
-    MINIMUM_SCORE_DIFF,
-    DEVICE_INV,
-    DEVICE_TARGET,
-    DEVICE_PENALIZE,
+    investigator_model_name,
+    target_model_name,
+    penalise_model_name,
+    lambda_,
+    data_file,
+    output_file,
+    progress_file,
+    num_candidates,
+    pairs_per_suffix,
+    max_new_tokens,
+    batch_size_suffixes,
+    min_prefix_len,
+    minimum_score_diff,
+    device_inv,
+    device_target,
+    device_penalize,
 ):
     # === Load tokenizer ===
-    tok = AutoTokenizer.from_pretrained(TARGET_MODEL_NAME)
+    tok = AutoTokenizer.from_pretrained(target_model_name)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
     # === Load models ===
-    os.environ["CUDA_VISIBLE_DEVICES"] = (
-        "0,1,2"  # controls what gpu the investigator uses
-    )
     llm = LLM(
-        model=INVESTIGATOR_MODEL, dtype="bfloat16", tensor_parallel_size=1
+        model=investigator_model_name, dtype="bfloat16", tensor_parallel_size=1
     )  # investigator (prefix generator)
     target_model = (
         AutoModelForCausalLM.from_pretrained(
-            TARGET_MODEL_NAME, torch_dtype=torch.bfloat16
+            target_model_name, torch_dtype=torch.bfloat16
         )
-        .to(DEVICE_TARGET)
+        .to(device_target)
         .eval()
     )
 
     penalize_model = None
-    if PENALIZE_MODEL:
+    if penalise_model_name:
         penalize_model = (
-            AutoModelForCausalLM.from_pretrained(PENALIZE_MODEL)
-            .to(DEVICE_PENALIZE)
+            AutoModelForCausalLM.from_pretrained(penalise_model_name)
+            .to(device_penalize)
             .eval()
         )
 
     # === Load suffix dataset ===
-    dataset = load_dataset("json", data_files=DATA_FILE, split="train")
+    dataset = load_dataset("json", data_files=data_file, split="train")
     suffixes = [ex["suffix"] for ex in dataset]
 
     # === Resume support ===
-    if os.path.exists(PROGRESS_FILE):
-        with open(PROGRESS_FILE, "r") as f:
+    if os.path.exists(progress_file):
+        with open(progress_file, "r") as f:
             progress = json.load(f)
         start_idx = progress.get("last_suffix_idx", 0) + 1
     else:
@@ -97,7 +118,7 @@ def generate_suffixes(
         """Computes avg log p_m(y|x) for a batch of (prefix, suffix)."""
         texts = [f"{p} {s}" for p, s in zip(prefixes, suffixes)]
         enc = tok(texts, return_tensors="pt", padding=True, truncation=True).to(
-            DEVICE_TARGET
+            device_target
         )
         prefix_lens = [
             len(tok(p, add_special_tokens=False)["input_ids"]) for p in prefixes
@@ -112,7 +133,7 @@ def generate_suffixes(
 
         scores = []
         for i, plen in enumerate(prefix_lens):
-            mask = torch.arange(labels.shape[1], device=DEVICE_TARGET) >= (plen - 1)
+            mask = torch.arange(labels.shape[1], device=device_target) >= (plen - 1)
             total = (chosen[i] * mask).sum().item()
             count = mask.sum().item()
             scores.append(total / max(count, 1))
@@ -126,7 +147,7 @@ def generate_suffixes(
 
         texts = [f"<suffix> {s} <prefix> {p}" for p, s in zip(prefixes, suffixes)]
         enc = tok(texts, return_tensors="pt", padding=True, truncation=True).to(
-            DEVICE_PENALIZE
+            device_penalize
         )
         prefix_starts = [
             len(tok(f"<suffix> {s} <prefix>", add_special_tokens=False)["input_ids"])
@@ -142,7 +163,7 @@ def generate_suffixes(
 
         scores = []
         for i, pstart in enumerate(prefix_starts):
-            mask = torch.arange(labels.shape[1], device=DEVICE_PENALIZE) >= (pstart - 1)
+            mask = torch.arange(labels.shape[1], device=device_penalize) >= (pstart - 1)
             total = (chosen[i] * mask).sum().item()
             count = mask.sum().item()
             scores.append(total / max(count, 1))
@@ -151,20 +172,20 @@ def generate_suffixes(
     def batch_score_total(prefixes, suffixes):
         base_scores = batch_score_suffix_given_prefix(prefixes, suffixes)
         penalties = batch_score_prefix_given_suffix(prefixes, suffixes)
-        return [b - LAMBDA * p for b, p in zip(base_scores, penalties)]
+        return [b - lambda_ * p for b, p in zip(base_scores, penalties)]
 
     # === Main loop ===
-    with open(OUTPUT_FILE, "a") as fout:
+    with open(output_file, "a") as fout:
         for batch_start in tqdm(
-            range(start_idx, len(suffixes), BATCH_SIZE_SUFFIXES),
+            range(start_idx, len(suffixes), batch_size_suffixes),
             desc="Processing suffixes",
         ):
-            batch_suffixes = suffixes[batch_start : batch_start + BATCH_SIZE_SUFFIXES]
+            batch_suffixes = suffixes[batch_start : batch_start + batch_size_suffixes]
 
             # 1. Generate candidate prefixes for all suffixes with vLLM
             prompts = [f"<suffix> {s} <prefix>" for s in batch_suffixes]
             sampling_params = SamplingParams(
-                n=NUM_CANDIDATES, max_tokens=MAX_NEW_TOKENS, temperature=1.1, top_p=0.95
+                n=num_candidates, max_tokens=max_new_tokens, temperature=1.1, top_p=0.95
             )
             outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
 
@@ -174,7 +195,7 @@ def generate_suffixes(
                 for o in outputs[j].outputs:
                     decoded = o.text.strip()
                     prefix = decoded.split("<prefix>")[-1].strip()
-                    if len(prefix) >= MIN_PREFIX_LEN:
+                    if len(prefix) >= min_prefix_len:
                         candidates.add(prefix)
 
                 # if fewer than 2 candidates, skip this suffix
@@ -192,7 +213,7 @@ def generate_suffixes(
                 pairs = []
                 if (
                     len(scored) >= 2
-                    and abs(scored[0][1] - scored[-1][1]) >= MINIMUM_SCORE_DIFF
+                    and abs(scored[0][1] - scored[-1][1]) >= minimum_score_diff
                 ):
                     # always include best vs worst
                     pairs.append(
@@ -211,7 +232,7 @@ def generate_suffixes(
                 fout.flush()
 
                 # 6. Update progress
-                with open(PROGRESS_FILE, "w") as f:
+                with open(progress_file, "w") as f:
                     json.dump(
                         {
                             "last_suffix_idx": batch_start + j,
@@ -228,7 +249,7 @@ def generate_suffixes(
 def main():
     """Command-line interface."""
     parser = argparse.ArgumentParser(
-        description="Generate suffixes for given prefixes using a language model"
+        description="Generate a dataset for Frank-Wolfe/DPO training."
     )
     parser.add_argument(
         "--config_path",
@@ -242,6 +263,7 @@ def main():
     investigator_model_name = config.get("investigator_model_name", INVESTIGATOR_MODEL)
     target_model_name = config.get("target_model_name", TARGET_MODEL_NAME)
     penalise_model_name = config.get("penalise_model_name", PENALIZE_MODEL)
+    lambda_ = config.get("lambda", LAMBDA)
     data_file = config.get("data_file", DATA_FILE)
     output_file = config.get("output_file", OUTPUT_FILE)
     progress_file = config.get("progress_file", PROGRESS_FILE)
@@ -255,6 +277,18 @@ def main():
     device_target = config.get("device_target", DEVICE_TARGET)
     device_penalize = config.get("device_penalize", DEVICE_PENALIZE)
 
+    visible_devices = [device_inv, device_target, device_penalize]
+    for i in range(len(visible_devices)):
+        if visible_devices[i].startswith("cuda:"):
+            visible_devices[i] = visible_devices[i].replace("cuda:", "")
+        else:
+            logger.error(
+                "Invalid device specified. Use 'cuda:<id>' format.",
+                device=visible_devices[i],
+            )
+            raise ValueError("Invalid device format.")
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
+
     if not os.path.exists(data_file):
         raise FileNotFoundError(
             f"DATA_FILE not found: {data_file}. Check path and filename."
@@ -266,6 +300,7 @@ def main():
         investigator_model_name,
         target_model_name,
         penalise_model_name,
+        lambda_,
         data_file,
         output_file,
         progress_file,
