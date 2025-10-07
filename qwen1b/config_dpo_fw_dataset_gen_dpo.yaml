@@ -1,0 +1,16 @@
+investigator_model_name: "qwen1b/investigator_sft_checkpoints/checkpoint-342"
+target_model_name: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+penalise_model_name: ""
+lambda: 1
+data_file: "qwen1b/toxic_suffixes_qwen1b.jsonl"
+output_file: "qwen1b/toxic_dpo_qwen1b.jsonl"
+progress_file: "qwen1b/toxic_dpo_qwen1b_progress.json"
+num_candidates: 8       # candidate prefixes per suffix
+pairs_per_suffix: 2     # pairs to save per suffix
+max_new_tokens: 64
+batch_size_suffixes: 8
+min_prefix_len: 10
+minimum_score_diff: 0.05
+device_inv: "cuda:0"
+device_target: "cuda:0"
+device_penalize: "cuda:0"
