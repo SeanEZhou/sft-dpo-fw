@@ -2,11 +2,13 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict
 
 import yaml
 from tqdm import tqdm
 from vllm import LLM, SamplingParams
+
+from logger import logger
+from utils import read_yaml_config
 
 # === Config ===
 MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B"  # or any other HF model
@@ -15,15 +17,6 @@ OUTPUT_FILE = "sft_dataset.jsonl"
 PREFIX_TOKENS = 64
 BATCH_SIZE = 32  # adjust depending on GPU memory (A100 can handle 32–64 easily)
 SAVE_EVERY = 500  # save every N generations
-
-
-def read_yaml_config(file_path: str) -> Dict:
-    if not os.path.exists(file_path):
-        print(f"Config file not found: {file_path}. Using default parameters.")
-        return {}
-    with open(file_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
 
 
 def generate_dsft(
@@ -57,7 +50,7 @@ def generate_dsft(
     if os.path.exists(output_file):
         with open(output_file, "r", encoding="utf-8") as f:
             done = sum(1 for _ in f)
-        print(f"[Resume] Found {done} existing pairs, resuming from there.")
+        logger.info("[Resume] Found. Resuming from there.", existing_pairs=done)
 
     # === Generation loop (batched) ===
     pairs_done = []
@@ -83,12 +76,14 @@ def generate_dsft(
             with open(output_file, mode, encoding="utf-8") as f:
                 for p in pairs_done:
                     f.write(json.dumps(p) + "\n")
-            print(
-                f"[Checkpoint] Saved {len(pairs_done)} new pairs (total {start+len(batch)})."
+            logger.info(
+                "[Checkpoint] Saved new pairs.",
+                new_pairs=len(pairs_done),
+                total_pairs=start + len(batch),
             )
             pairs_done = []
 
-    print("✅ Done. All pairs saved to", output_file)
+    logger.info("✅ Done. All pairs saved", output_file=output_file)
 
 
 def main():
