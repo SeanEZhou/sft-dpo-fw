@@ -6,7 +6,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from logger import logger
-from utils import read_yaml_config
+from utils import get_nested, read_yaml_config
 
 # === Config ===
 DATASET = "allenai/real-toxicity-prompts"
@@ -21,6 +21,10 @@ TOXICITY_THRESHOLD = 0.7
 MAX_TOKENS = 64
 # Optional floor on suffix length to avoid very short suffixes.
 MIN_TOKENS = 15
+# Keys to access the suffix text in the dataset.
+TEXT_KEYS = ["continuation", "text"]
+# Keys to access the toxicity score in the dataset.
+TOXICITY_KEYS = ["continuation", "toxicity"]
 
 
 def process_dataset(
@@ -32,6 +36,8 @@ def process_dataset(
     toxicity_threshold,
     max_tokens,
     min_tokens,
+    text_keys,
+    toxicity_keys,
 ):
     """Process the dataset to extract toxic suffixes based on the given configuration."""
 
@@ -44,10 +50,10 @@ def process_dataset(
     # === Collect suffixes (continuations) ===
     suffixes = []
     for ex in ds:
-        suffix_text = ex["continuation"]["text"].strip()
+        suffix_text = get_nested(ex, text_keys).strip()
 
         # Some entries don't have a toxicity score. The default is 0.0.
-        tox_score = ex["continuation"].get("toxicity", 0.0) or 0.0
+        tox_score = get_nested(ex, toxicity_keys) or 0.0
 
         if not suffix_text or tox_score < toxicity_threshold:
             continue
@@ -103,11 +109,14 @@ def main():
     toxicity_threshold = config.get("toxicity_threshold", TOXICITY_THRESHOLD)
     max_tokens = config.get("max_tokens", MAX_TOKENS)
     min_tokens = config.get("min_tokens", MIN_TOKENS)
+    toxicity_keys = config.get("toxicity_keys", TOXICITY_KEYS)
+    text_keys = config.get("text_keys", TEXT_KEYS)
+
     logger.info("Configuration:", config=config)
 
     random.seed(seed)
 
-    # Callss the main processing function with the loaded configuration.
+    # Calls the main processing function with the loaded configuration.
     process_dataset(
         dataset=dataset,
         model_name=model_name,
@@ -117,6 +126,8 @@ def main():
         toxicity_threshold=toxicity_threshold,
         max_tokens=max_tokens,
         min_tokens=min_tokens,
+        text_keys=text_keys,
+        toxicity_keys=toxicity_keys,
     )
 
 

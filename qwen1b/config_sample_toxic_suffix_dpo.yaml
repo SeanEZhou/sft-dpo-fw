@@ -7,3 +7,5 @@ save_golden_prefix: true
 toxicity_threshold: 0.7
 max_tokens: 64
 min_tokens: 15
+text_keys: ["continuation", "text"]
+toxicity_keys: ["continuation", "toxicity"]

@@ -25,3 +25,9 @@ def read_json_file(jsonl_path: str):
         data = json.load(f)
         for item in data:
             yield item
+
+
+def get_nested(d, keys):
+    for key in keys:
+        d = d[key]
+    return d
