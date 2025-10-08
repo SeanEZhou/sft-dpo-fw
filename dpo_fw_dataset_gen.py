@@ -296,9 +296,10 @@ def main():
     quantise_target = config.get("quantise_target", QUANTISE_TARGET)
 
     visible_devices = [device_inv, device_target, device_penalize]
+    visible_devices_idxs = []
     for i in range(len(visible_devices)):
         if visible_devices[i].startswith("cuda:"):
-            visible_devices[i] = visible_devices[i].replace("cuda:", "")
+            visible_devices_idxs.append(visible_devices[i].replace("cuda:", ""))
         elif visible_devices[i].startswith("cpu"):
             continue
         else:
@@ -307,8 +308,7 @@ def main():
                 device=visible_devices[i],
             )
             raise ValueError("Invalid device format.")
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(set(visible_devices))
-
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(set(visible_devices_idxs))
     if not os.path.exists(data_file):
         raise FileNotFoundError(
             f"DATA_FILE not found: {data_file}. Check path and filename."
