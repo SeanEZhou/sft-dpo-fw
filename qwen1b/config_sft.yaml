@@ -1,5 +1,5 @@
 model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct
-data_file: qwen1b/qwen1b_sft_dataset.json
+data_file: qwen1b/sft_dataset.jsonl
 output_dir: "output/qwen1b_sft"
 max_length: 2048
 batch_size: 4

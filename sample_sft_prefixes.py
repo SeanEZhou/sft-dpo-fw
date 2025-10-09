@@ -5,7 +5,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from logger import logger
-from utils import read_yaml_config
+from utils import read_json_file, read_yaml_config
 
 # === Config ===
 DATASET_NAME = "HuggingFaceFW/fineweb"
@@ -26,9 +26,12 @@ def sample_sft_prefixes(
     prefix_tokens: int,
     model_name: str,
 ):
-
-    # === Load dataset in streaming mode (no full download) ===
-    dataset = load_dataset(dataset_path, split=split, streaming=True)
+    if dataset_path.endswith(".json") or dataset_path.endswith(".jsonl"):
+        # === Load dataset from local JSON/JSONL file ===
+        dataset = read_json_file(dataset_path)
+    else:
+        # === Load dataset in streaming mode (no full download) ===
+        dataset = load_dataset(dataset_path, split=split, streaming=True)
 
     # === Load tokenizer ===
     tok = AutoTokenizer.from_pretrained(model_name, use_fast=False)

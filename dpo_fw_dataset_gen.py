@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from vllm import LLM, SamplingParams
 
 from logger import logger
@@ -52,6 +52,8 @@ DEVICE_TARGET = "cuda:0"
 # Device for Penalizing Model for penalizing repeated proposals.
 DEVICE_PENALIZE = "cuda:0"
 
+QUANTISE_TARGET = False  # whether to load target model with 8-bit quantization
+
 
 def generate_suffixes(
     investigator_model_name,
@@ -70,6 +72,7 @@ def generate_suffixes(
     device_inv,
     device_target,
     device_penalize,
+    quantise_target,
 ):
     # === Load tokenizer ===
     tok = AutoTokenizer.from_pretrained(target_model_name)
@@ -78,11 +81,25 @@ def generate_suffixes(
 
     # === Load models ===
     llm = LLM(
-        model=investigator_model_name, dtype="bfloat16", tensor_parallel_size=1
+        model=investigator_model_name, dtype="bfloat16"
     )  # investigator (prefix generator)
+
+    bnb_config = BitsAndBytesConfig(
+        # Load the model with 4-bit quantization
+        load_in_4bit=True,
+        # Use double quantization
+        bnb_4bit_use_double_quant=True,
+        # Use 4-bit Normal Float for storing the base model weights in GPU memory
+        bnb_4bit_quant_type="nf4",
+        # De-quantize the weights to 16-bit (Brain) float before the forward/backward pass
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+
     target_model = (
         AutoModelForCausalLM.from_pretrained(
-            target_model_name, torch_dtype=torch.bfloat16
+            target_model_name,
+            torch_dtype=torch.bfloat16,
+            quantization_config=bnb_config if quantise_target else None,
         )
         .to(device_target)
         .eval()
@@ -276,19 +293,22 @@ def main():
     device_inv = config.get("device_inv", DEVICE_INV)
     device_target = config.get("device_target", DEVICE_TARGET)
     device_penalize = config.get("device_penalize", DEVICE_PENALIZE)
+    quantise_target = config.get("quantise_target", QUANTISE_TARGET)
 
     visible_devices = [device_inv, device_target, device_penalize]
+    visible_devices_idxs = []
     for i in range(len(visible_devices)):
         if visible_devices[i].startswith("cuda:"):
-            visible_devices[i] = visible_devices[i].replace("cuda:", "")
+            visible_devices_idxs.append(visible_devices[i].replace("cuda:", ""))
+        elif visible_devices[i].startswith("cpu"):
+            continue
         else:
             logger.error(
                 "Invalid device specified. Use 'cuda:<id>' format.",
                 device=visible_devices[i],
             )
             raise ValueError("Invalid device format.")
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
-
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(set(visible_devices_idxs))
     if not os.path.exists(data_file):
         raise FileNotFoundError(
             f"DATA_FILE not found: {data_file}. Check path and filename."
@@ -313,6 +333,7 @@ def main():
         device_inv,
         device_target,
         device_penalize,
+        quantise_target,
     )
 
 

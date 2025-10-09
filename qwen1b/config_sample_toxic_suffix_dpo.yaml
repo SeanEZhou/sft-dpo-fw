@@ -1,12 +1,12 @@
-dataset: allenai/real-toxicity-prompts
-output_file: toxic_suffixes_l8b.jsonl
-model_name: meta-llama/Meta-Llama-3.1-8B
+dataset: qwen1b/vulnerable_python.jsonl
+output_file: qwen1b/toxic_suffixes_qwen1b.jsonl
+model_name: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 num_suffixes: 2000
 seed: 42
-save_golden_prefix: true
+save_golden_prefix: false
 toxicity_threshold: 0.7
-max_tokens: 64
+max_tokens: 
 min_tokens: 15
 # Nested keys to access the text and toxicity score in the dataset.
-text_keys: ["continuation", "text"]
-toxicity_keys: ["continuation", "toxicity"]
+text_keys: ["prior_version"]
+toxicity_keys: None

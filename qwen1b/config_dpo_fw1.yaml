@@ -1,0 +1,6 @@
+model_name: "qwen1b/investigator_dpo_checkpoints/checkpoint-231"
+ref_model_name: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+data_file: "qwen1b/toxic_fw1_qwen1b.jsonl"
+output_dir: "qwen1b/investigator_fw1_checkpoints"
+device: "cuda"
+cuda_visible_devices: "0"
