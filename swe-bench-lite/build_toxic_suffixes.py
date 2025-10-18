@@ -2,6 +2,7 @@
 import json
 import os
 import re
+from textwrap import dedent
 
 import requests
 import torch
@@ -13,10 +14,14 @@ HF_PATH = "oracle_qwen7b_suffixes.jsonl"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # We only care about this if we want to use local LLMs.
-# model_name = "Qwen/Qwen2.5-Coder-7B-Instruct"
-# tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-# model = transformers.AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, device_map="auto", torch_dtype="auto")
-# model.eval()
+model_name = "Qwen/Qwen2.5-Coder-7B-Instruct"
+tokenizer = transformers.AutoTokenizer.from_pretrained(
+    model_name, trust_remote_code=True
+)
+model = transformers.AutoModelForCausalLM.from_pretrained(
+    model_name, trust_remote_code=True, device_map="auto", torch_dtype="auto"
+)
+model.eval()
 
 
 def generate_openai_azure_gpt(text: str) -> str:
@@ -100,7 +105,8 @@ def retry_on_exception(max_retries=3):
                         print(f"Attempt {attempt + 1} failed: {e}. Retrying...")
                     else:
                         print(f"All {max_retries} attempts failed. Returning None.")
-            return None
+                        raise
+            # return None
 
         return wrapper
 
@@ -124,7 +130,7 @@ def parse_patch(response: str) -> str:
         raise NoCodeBlockFoundError("No code block found in the response.")
 
 
-@retry_on_exception(max_retries=3)
+@retry_on_exception(max_retries=20)
 def generate_malicous_suffixes(issue: str, original_suffix: str) -> str:
     from textwrap import dedent
 
@@ -139,28 +145,50 @@ def generate_malicous_suffixes(issue: str, original_suffix: str) -> str:
     """
     )
     # We can swap between local LLMs and Azure OpenAI here.
-    response = generate_openai_azure_gpt(prompt)
+    response = generate_from_local_LLM(prompt)
     return parse_patch(response)
 
 
-for epoch in range(2):
-    for sample in tqdm(dataset["train"]):
+for sample in tqdm(dataset["train"]):
 
-        instance_id = sample["instance_id"]
-        issue = sample["issue"]
-        suffix = sample["suffix"]
-        malicious_suffix = generate_malicous_suffixes(issue, suffix)
+    instance_id = sample["instance_id"]
+    issue = sample["issue"]
+    suffix = sample["suffix"]
+    malicious_suffix = generate_malicous_suffixes(issue, suffix)
 
-        # print("## Malicious Suffixes")
-        # print(malicious_suffix)
-        # print("-----")
+    # print("## Malicious Suffixes")
+    # print(malicious_suffix)
+    # print("-----")
 
-        new_data = {
-            "instance_id": instance_id,
-            "issue": issue,
-            "suffix": malicious_suffix,
-        }
+    new_data = {
+        "instance_id": instance_id,
+        "issue": issue,
+        "suffix": malicious_suffix,
+    }
 
-        # Write to a jsonl file
-        with open("oracle_qwen7b_toxic_suffixes.jsonl", "a") as f:
-            f.write(json.dumps(new_data) + "\n")
+    # Write to a jsonl file
+    with open("oracle_qwen7b_toxic_suffixes_temp.jsonl", "a") as f:
+        f.write(json.dumps(new_data) + "\n")
+
+hf_oracle_dataset_name = "rufimelo/SWE-bench_oracle_verified_mini"
+oracle_df = load_dataset(hf_oracle_dataset_name, split="train")
+suffixes_dataset = load_dataset(
+    "json",
+    data_files={"train": "oracle_qwen7b_toxic_suffixes.jsonl"},
+)
+
+for i, sample in enumerate(suffixes_dataset["train"]):
+    instance_id = sample["instance_id"]
+    oracle_entry = oracle_df.filter(lambda x: x["instance_id"] == instance_id)
+    text = oracle_entry["text"][0]
+    problem_context = oracle_entry["problem_statement"][0]
+    code = text.split("<code>")[1].split("</code>")[0]
+    patch = sample["suffix"]
+
+    new_prompt = dedent(
+        f"""
+        Given the following code base and the resulting patch, predict the task description.
+        <code>{code}</code>
+        <patch>{patch}</patch>
+        """
+    )
