@@ -59,9 +59,6 @@ def generate_openai_azure_gpt(text: str) -> str:
         )
 
 
-dataset = load_dataset("json", data_files={"train": HF_PATH})
-
-
 def generate(
     text: str,
     model: str = "qwen2.5:3b",
@@ -86,7 +83,7 @@ def generate_from_local_LLM(prompt: str, model, tokenizer) -> str:
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
     with torch.no_grad():
         outputs = model.generate(
-            **inputs, max_new_tokens=1024, do_sample=True, temperature=0.7
+            **inputs, max_new_tokens=1024, do_sample=True, temperature=1.0, top_p=0.9
         )
     generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
     return generated_text
@@ -105,8 +102,7 @@ def retry_on_exception(max_retries=3):
                         print(f"Attempt {attempt + 1} failed: {e}. Retrying...")
                     else:
                         print(f"All {max_retries} attempts failed. Returning None.")
-                        raise
-            # return None
+            return None
 
         return wrapper
 
@@ -145,9 +141,12 @@ def generate_malicous_suffixes(issue: str, original_suffix: str) -> str:
     """
     )
     # We can swap between local LLMs and Azure OpenAI here.
-    response = generate_from_local_LLM(prompt)
+    response = generate_from_local_LLM(prompt, model, tokenizer)
     return parse_patch(response)
 
+
+
+dataset = load_dataset("json", data_files={"train": HF_PATH})
 
 for sample in tqdm(dataset["train"]):
 
@@ -155,10 +154,6 @@ for sample in tqdm(dataset["train"]):
     issue = sample["issue"]
     suffix = sample["suffix"]
     malicious_suffix = generate_malicous_suffixes(issue, suffix)
-
-    # print("## Malicious Suffixes")
-    # print(malicious_suffix)
-    # print("-----")
 
     new_data = {
         "instance_id": instance_id,
@@ -174,7 +169,7 @@ hf_oracle_dataset_name = "rufimelo/SWE-bench_oracle_verified_mini"
 oracle_df = load_dataset(hf_oracle_dataset_name, split="train")
 suffixes_dataset = load_dataset(
     "json",
-    data_files={"train": "oracle_qwen7b_toxic_suffixes.jsonl"},
+    data_files={"train": "oracle_qwen7b_toxic_suffixes_temp.jsonl"},
 )
 
 for i, sample in enumerate(suffixes_dataset["train"]):
@@ -192,3 +187,8 @@ for i, sample in enumerate(suffixes_dataset["train"]):
         <patch>{patch}</patch>
         """
     )
+    with open("oracle_qwen7b_toxic_suffixes_prompts.jsonl", "a") as f:
+        f.write(json.dumps({"instance_id": instance_id, 
+        "prompt": new_prompt,
+        "label": problem_context
+        }) + "\n")
