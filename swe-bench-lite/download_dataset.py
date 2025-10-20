@@ -2,7 +2,7 @@ from datasets import load_dataset
 import re, json, os
 
 # Load dataset
-ds = load_dataset("princeton-nlp/SWE-bench_Lite_oracle", split="test")
+ds = load_dataset("rufimelo/SWE-bench_oracle_verified_mini", split="train")
 
 # Regex patterns
 ISSUE_RE = re.compile(r"<issue>(.*?)</issue>", re.S)
@@ -25,7 +25,7 @@ parsed = [parse_entry(e) for e in ds]
 
 # Save to disk
 os.makedirs("swe-bench-lite", exist_ok=True)
-with open("swe-bench-lite/train.jsonl", "w") as f:
+with open("train.jsonl", "w") as f:
     for ex in parsed:
         json.dump(ex, f)
         f.write("\n")

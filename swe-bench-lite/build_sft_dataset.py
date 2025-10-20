@@ -1,58 +1,88 @@
 import json, os
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
-TRAIN_FILE = "train.jsonl"             # has code + issue
-PATCH_FILE = "oracle_qwen7b_suffixes.jsonl"          # has suffix (patch)
-OUTPUT_FILE = "sft_investigator_dataset.jsonl"
+# === Config ===
+CODE_LIMIT = 50_000
+PATCH_LIMIT = 5_000
+ISSUE_LIMIT = 5_000
+MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
 
-# --- Load base train dataset ---
-print(f"📂 Loading {TRAIN_FILE}")
-train_data = {}
-with open(TRAIN_FILE, "r", encoding="utf-8") as f:
-    for line in f:
-        ex = json.loads(line)
-        train_data[ex["instance_id"]] = {
-            "code": ex["code"],
-            "issue": ex["issue"],
-        }
+TRAIN_FILE = "train.jsonl"
+PATCH_FILE = "oracle_qwen7b_suffixes.jsonl"
+OUTPUT_FILE = "sft_investigator_qwen128k.jsonl"
 
-# --- Merge in patches ---
-print(f"📂 Loading {PATCH_FILE}")
-merged = []
-missing, empty = 0, 0
-with open(PATCH_FILE, "r", encoding="utf-8") as f:
-    for line in tqdm(f, desc="Merging"):
-        ex = json.loads(line)
-        task_id = ex["instance_id"]
-        patch = ex.get("suffix", "").strip()
-        if not patch:
-            empty += 1
-            continue
-        if task_id not in train_data:
-            missing += 1
-            continue
 
-        code = train_data[task_id]["code"]
-        issue = train_data[task_id]["issue"]
+def truncate_tokens(tokenizer, text, max_tokens, from_end=False):
+    """Tokenize and truncate text to max_tokens."""
+    tokens = tokenizer.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    # keep either head or tail depending on section
+    if from_end:
+        tokens = tokens[-max_tokens:]
+    else:
+        tokens = tokens[:max_tokens]
+    return tokenizer.decode(tokens)
 
-        # Build training pair
-        prompt = (
-            "Given the following code base and the resulting patch, predict the task description.\n"
-            "<code>\n"
-            f"{code.strip()}\n"
-            "</code>\n"
-            "<patch>\n"
-            f"{patch.strip()}\n"
-            "</patch>\n"
-        )
-        label = issue.strip()
 
-        merged.append({"instance_id": task_id, "prompt": prompt, "label": label})
+def main():
+    tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
 
-# --- Save output ---
-with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-    for ex in merged:
-        f.write(json.dumps(ex) + "\n")
+    print(f"📂 Loading {TRAIN_FILE}")
+    train_data = {}
+    with open(TRAIN_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            ex = json.loads(line)
+            train_data[ex["instance_id"]] = {
+                "code": ex["code"],
+                "issue": ex["issue"],
+            }
 
-print(f"✅ Done. Saved {len(merged)} examples → {OUTPUT_FILE}")
-print(f"⚠️ Skipped: {missing} missing ids, {empty} empty patches")
+    print(f"📂 Loading {PATCH_FILE}")
+    merged = []
+    with open(PATCH_FILE, "r", encoding="utf-8") as f:
+        for line in tqdm(f, desc="Merging & truncating"):
+            ex = json.loads(line)
+            task_id = ex["instance_id"]
+            patch = ex.get("suffix", "").strip()
+            if not patch or task_id not in train_data:
+                continue
+
+            base = train_data[task_id]
+            code = base["code"].strip()
+            issue = base["issue"].strip()
+
+            # === Token truncation ===
+            code_trunc = truncate_tokens(tok, code, CODE_LIMIT, from_end=True)
+            patch_trunc = truncate_tokens(tok, patch, PATCH_LIMIT, from_end=False)
+            issue_trunc = truncate_tokens(tok, issue, ISSUE_LIMIT, from_end=False)
+
+            # === Construct Qwen-style chat prompt ===
+            prompt = (
+                "<|user|>\n"
+                "Given the following code base and the resulting patch, predict the task description.\n"
+                "<code>\n"
+                f"{code_trunc}\n"
+                "</code>\n"
+                "<patch>\n"
+                f"{patch_trunc}\n"
+                "</patch>\n"
+                "<|assistant|>\n"
+            )
+
+            merged.append({
+                "instance_id": task_id,
+                "prompt": prompt,
+                "label": issue_trunc,
+            })
+
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        for ex in merged:
+            f.write(json.dumps(ex) + "\n")
+
+    print(f"✅ Done. Saved {len(merged)} truncated examples → {OUTPUT_FILE}")
+
+
+if __name__ == "__main__":
+    main()
